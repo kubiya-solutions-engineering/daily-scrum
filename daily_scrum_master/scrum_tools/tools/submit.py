@@ -22,13 +22,14 @@ submit_standup_tool = DailyScrumTool(
     name="submit_standup",
     description=(
         "Submit a standup update to be recorded in the team's Airtable database.\n"
-        "This tool allows team members to submit what they did yesterday, what they plan to do today, and any blockers they're facing."
+        "This tool allows team members to submit what they did yesterday, what they plan to do today, and any blockers they're facing.\n"
+        "The system will automatically analyze for blockers using AI and notify the scrum master if any are detected."
     ),
     content="""
     set -e
     python -m venv /opt/venv > /dev/null
     . /opt/venv/bin/activate > /dev/null
-    pip install requests==2.32.3 pyairtable==2.1.0 2>&1 | grep -v '[notice]'
+    pip install requests==2.32.3 pyairtable==2.1.0 litellm==1.44.22 2>&1 | grep -v '[notice]'
 
     # Run the standup submission script
     python /opt/scripts/submit_standup_update.py --yesterday "{{ .yesterday }}" --today "{{ .today }}" {{ if .blockers }}--blockers "{{ .blockers }}"{{ end }} --notify
@@ -61,12 +62,15 @@ submit_standup_tool = DailyScrumTool(
     ],
     env=[
         "KUBIYA_USER_EMAIL",
+        "SCRUM_MASTER_EMAIL",
+        "LLM_BASE_URL",
+        "AIRTABLE_BASE_ID",
+        "AIRTABLE_TABLE_NAME"
     ],
     secrets=[
         "SLACK_API_TOKEN",
         "AIRTABLE_API_KEY",
-        "AIRTABLE_BASE_ID",
-        "AIRTABLE_TABLE_NAME",
+        "LLM_API_KEY"
     ],
     with_files=[
         FileSpec(
