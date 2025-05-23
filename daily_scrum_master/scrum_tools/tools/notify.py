@@ -31,17 +31,16 @@ notify_standup_tool = DailyScrumTool(
     pip install requests==2.32.3 2>&1 | grep -v '[notice]'
 
     # Run the standup notification script
-    python /opt/scripts/notify_users.py {{ range .team_emails }}"{{ . }}" {{ end }}
+    python /opt/scripts/notify_users.py "{{ .team_emails }}"
     """,
     args=[
         Arg(
             name="team_emails",
             description=(
-                "List of email addresses of team members to notify for standup reports.\n"
-                "*Example*: `[\"user1@example.com\", \"user2@example.com\"]`"
+                "Comma-separated list of email addresses of team members to notify for standup reports.\n"
+                "*Example*: `\"user1@example.com,user2@example.com,user3@example.com\"`"
             ),
             required=True,
-            is_array=True,
         ),
     ],
     env=[

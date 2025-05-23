@@ -130,8 +130,15 @@ def notify_team(team_emails):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: collect_user_standup.py <user_email> [user_email2 user_email3 ...]")
+        print("Usage: notify_users.py <comma_separated_emails>")
         sys.exit(1)
 
-    user_emails = sys.argv[1:]
+    # Parse comma-separated emails from the first argument
+    emails_string = sys.argv[1]
+    user_emails = [email.strip() for email in emails_string.split(',') if email.strip()]
+    
+    if not user_emails:
+        print("No valid email addresses provided")
+        sys.exit(1)
+    
     notify_team(user_emails)
