@@ -65,7 +65,7 @@ submit_standup_tool = DailyScrumTool(
         "SCRUM_MASTER_EMAIL",
         "LLM_BASE_URL",
         "AIRTABLE_BASE_ID",
-        "AIRTABLE_TABLE_NAME"
+        "AIRTABLE_TABLE_ID"
     ],
     secrets=[
         "SLACK_API_TOKEN",
