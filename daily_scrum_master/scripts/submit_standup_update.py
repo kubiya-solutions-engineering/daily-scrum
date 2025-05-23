@@ -212,24 +212,68 @@ def submit_standup_to_airtable(user_email, yesterday, today, blockers=None):
         blockers (str, optional): Any blockers the user is facing
     """
     # Get Airtable credentials from environment variables
-    airtable_api_key = os.environ["AIRTABLE_API_KEY"]
-    airtable_base_id = os.environ["AIRTABLE_BASE_ID"]
-    airtable_table_name = os.environ["AIRTABLE_TABLE_NAME"]
+    airtable_api_key = os.environ.get("AIRTABLE_API_KEY")
+    airtable_base_id = os.environ.get("AIRTABLE_BASE_ID")
+    airtable_table_id = os.environ.get("AIRTABLE_TABLE_ID")
     
-    # Initialize Airtable API
-    api = Api(airtable_api_key)
-    table = api.table(airtable_base_id, airtable_table_name)
+    # Validate required environment variables
+    if not airtable_api_key:
+        print("Error: AIRTABLE_API_KEY environment variable not set")
+        sys.exit(1)
+    if not airtable_base_id:
+        print("Error: AIRTABLE_BASE_ID environment variable not set")
+        sys.exit(1)
+    if not airtable_table_id:
+        print("Error: AIRTABLE_TABLE_ID environment variable not set")
+        sys.exit(1)
     
-    # Prepare the record data
-    current_time = datetime.now(timezone.utc)
-    formatted_date = current_time.strftime('%Y-%m-%d')
+    print(f"Connecting to Airtable base: {airtable_base_id}, table: {airtable_table_id}")
     
-    # Analyze for blockers using LLM
-    blocker_analysis = analyze_blockers_with_llm(yesterday, today, blockers)
-    
-    # Check if user already exists in the table
     try:
-        existing_records = table.all(formula=f"{{Email}} = '{user_email}'")
+        # Initialize Airtable API - use table ID directly
+        api = Api(airtable_api_key)
+        table = api.table(airtable_base_id, airtable_table_id)
+        
+        # Prepare the record data
+        current_time = datetime.now(timezone.utc)
+        formatted_date = current_time.strftime('%Y-%m-%d')
+        
+        # Analyze for blockers using LLM
+        print("Analyzing standup update for blockers...")
+        blocker_analysis = analyze_blockers_with_llm(yesterday, today, blockers)
+        
+        # First, let's inspect the table structure
+        print("Inspecting table structure...")
+        try:
+            sample_records = table.all(max_records=3)
+            if sample_records:
+                print("Current table fields:")
+                for field_name in sample_records[0]['fields'].keys():
+                    print(f"  - {field_name}")
+            else:
+                print("Table is empty, will create first record")
+        except Exception as e:
+            print(f"Could not inspect table structure: {str(e)}")
+        
+        # Check if user already exists in the table
+        print(f"Checking for existing record for user: {user_email}")
+        try:
+            existing_records = table.all(formula=f"{{Email}} = '{user_email}'")
+            print(f"Found {len(existing_records)} existing records for user")
+        except Exception as e:
+            print(f"Error checking for existing records: {str(e)}")
+            print("This might indicate the Email field doesn't exist yet")
+            
+            # Try to get all records and search manually
+            try:
+                print("Attempting to retrieve all records to find user manually...")
+                all_records = table.all()
+                existing_records = [r for r in all_records if r['fields'].get('Email') == user_email]
+                print(f"Found {len(existing_records)} matching records after manual search")
+            except Exception as manual_error:
+                print(f"Manual search also failed: {str(manual_error)}")
+                # Assume no existing records
+                existing_records = []
         
         record_data = {
             "Yesterday": yesterday,
@@ -249,6 +293,7 @@ def submit_standup_to_airtable(user_email, yesterday, today, blockers=None):
         if existing_records:
             # Update existing user record
             record_id = existing_records[0]['id']
+            print(f"Updating existing record {record_id} for user {user_email}")
             response = table.update(record_id, record_data)
             print(f"Successfully updated standup for existing user {user_email}")
         else:
@@ -258,17 +303,35 @@ def submit_standup_to_airtable(user_email, yesterday, today, blockers=None):
             name = user_email.split('@')[0].replace('.', ' ').title()
             record_data["Name"] = name
             
+            print(f"Creating new record for user {user_email}")
             response = table.create(record_data)
             print(f"Successfully created new user record and standup for {user_email}")
         
         # Notify scrum master if blockers detected
         if blocker_analysis["has_blockers"]:
+            print(f"Blockers detected, notifying scrum master: {blocker_analysis['summary']}")
             notify_scrum_master_about_blocker(user_email, blocker_analysis["summary"])
         
         return response
         
     except Exception as e:
         print(f"Failed to submit standup update: {str(e)}")
+        print(f"Error type: {type(e).__name__}")
+        
+        # Provide more specific guidance based on the error
+        if "403" in str(e) or "Forbidden" in str(e):
+            print("\n🔍 Troubleshooting 403 Forbidden Error:")
+            print("1. Verify your AIRTABLE_API_KEY has the correct permissions")
+            print("2. Check that the AIRTABLE_BASE_ID is correct")
+            print("3. Ensure the AIRTABLE_TABLE_ID exists in the base")
+            print("4. Confirm your API key has read/write access to the table")
+            print("5. Check if the table schema matches expected field names")
+        elif "404" in str(e) or "Not Found" in str(e):
+            print("\n🔍 Troubleshooting 404 Not Found Error:")
+            print("1. Verify the AIRTABLE_BASE_ID is correct")
+            print("2. Check that the AIRTABLE_TABLE_ID exists")
+            print("3. Ensure the base is accessible with your API key")
+        
         sys.exit(1)
 
 def notify_submission_success(user_email):
