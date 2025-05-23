@@ -244,51 +244,87 @@ def submit_standup_to_airtable(user_email, yesterday, today, blockers=None):
         
         # First, let's inspect the table structure
         print("Inspecting table structure...")
+        available_fields = set()
         try:
             sample_records = table.all(max_records=3)
             if sample_records:
+                available_fields = set(sample_records[0]['fields'].keys())
                 print("Current table fields:")
-                for field_name in sample_records[0]['fields'].keys():
+                for field_name in available_fields:
                     print(f"  - {field_name}")
             else:
                 print("Table is empty, will create first record")
         except Exception as e:
             print(f"Could not inspect table structure: {str(e)}")
         
-        # Check if user already exists in the table
-        print(f"Checking for existing record for user: {user_email}")
-        try:
-            existing_records = table.all(formula=f"{{Email}} = '{user_email}'")
-            print(f"Found {len(existing_records)} existing records for user")
-        except Exception as e:
-            print(f"Error checking for existing records: {str(e)}")
-            print("This might indicate the Email field doesn't exist yet")
-            
-            # Try to get all records and search manually
-            try:
-                print("Attempting to retrieve all records to find user manually...")
-                all_records = table.all()
-                existing_records = [r for r in all_records if r['fields'].get('Email') == user_email]
-                print(f"Found {len(existing_records)} matching records after manual search")
-            except Exception as manual_error:
-                print(f"Manual search also failed: {str(manual_error)}")
-                # Assume no existing records
-                existing_records = []
+        # Build record data based on available fields
+        record_data = {}
         
-        record_data = {
+        # Map our data to available fields or create a summary
+        if "Attachment Summary" in available_fields:
+            # Use the existing field to store our standup data
+            standup_summary = f"""
+STANDUP UPDATE - {formatted_date}
+User: {user_email}
+Name: {user_email.split('@')[0].replace('.', ' ').title()}
+
+YESTERDAY:
+{yesterday}
+
+TODAY:
+{today}
+
+BLOCKERS:
+{blockers if blockers else 'None'}
+
+BLOCKER ANALYSIS:
+- Has Blockers: {blocker_analysis['has_blockers']}
+- Summary: {blocker_analysis['summary']}
+
+Timestamp: {current_time.isoformat()}
+            """.strip()
+            
+            record_data["Attachment Summary"] = standup_summary
+        
+        # If we have the expected fields, use them
+        field_mapping = {
+            "Email": user_email,
+            "Name": user_email.split('@')[0].replace('.', ' ').title(),
             "Yesterday": yesterday,
             "Today": today,
             "Last_Updated": formatted_date,
             "Timestamp": current_time.isoformat(),
             "Has_Blockers": blocker_analysis["has_blockers"],
-            "Blocker_Summary": blocker_analysis["summary"]
+            "Blocker_Summary": blocker_analysis["summary"],
+            "Blockers": blockers if blockers else ""
         }
         
-        if blockers:
-            record_data["Blockers"] = blockers
+        # Only add fields that exist in the table
+        for field_name, value in field_mapping.items():
+            if field_name in available_fields:
+                record_data[field_name] = value
+        
+        print(f"Record data to submit: {list(record_data.keys())}")
+        
+        # Check if user already exists (only if Email field exists)
+        existing_records = []
+        if "Email" in available_fields:
+            print(f"Checking for existing record for user: {user_email}")
+            try:
+                existing_records = table.all(formula=f"{{Email}} = '{user_email}'")
+                print(f"Found {len(existing_records)} existing records for user")
+            except Exception as e:
+                print(f"Error checking for existing records: {str(e)}")
+                # Try manual search
+                try:
+                    all_records = table.all()
+                    existing_records = [r for r in all_records if r['fields'].get('Email') == user_email]
+                    print(f"Found {len(existing_records)} matching records after manual search")
+                except Exception as manual_error:
+                    print(f"Manual search also failed: {str(manual_error)}")
+                    existing_records = []
         else:
-            # Clear blockers if none provided
-            record_data["Blockers"] = ""
+            print("Email field not available, will create new record")
         
         if existing_records:
             # Update existing user record
@@ -298,11 +334,6 @@ def submit_standup_to_airtable(user_email, yesterday, today, blockers=None):
             print(f"Successfully updated standup for existing user {user_email}")
         else:
             # Create new user record
-            record_data["Email"] = user_email
-            # Extract name from email for display purposes
-            name = user_email.split('@')[0].replace('.', ' ').title()
-            record_data["Name"] = name
-            
             print(f"Creating new record for user {user_email}")
             response = table.create(record_data)
             print(f"Successfully created new user record and standup for {user_email}")
@@ -319,13 +350,26 @@ def submit_standup_to_airtable(user_email, yesterday, today, blockers=None):
         print(f"Error type: {type(e).__name__}")
         
         # Provide more specific guidance based on the error
-        if "403" in str(e) or "Forbidden" in str(e):
+        if "422" in str(e) or "UNKNOWN_FIELD_NAME" in str(e):
+            print("\n🔍 Troubleshooting 422 Unknown Field Error:")
+            print("The table doesn't have the expected fields. You need to either:")
+            print("1. Add the required fields to your Airtable table:")
+            print("   - Email (Single line text)")
+            print("   - Name (Single line text)")
+            print("   - Yesterday (Long text)")
+            print("   - Today (Long text)")
+            print("   - Blockers (Long text)")
+            print("   - Last_Updated (Date)")
+            print("   - Timestamp (Single line text)")
+            print("   - Has_Blockers (Checkbox)")
+            print("   - Blocker_Summary (Long text)")
+            print("2. Or modify the script to work with your existing table structure")
+        elif "403" in str(e) or "Forbidden" in str(e):
             print("\n🔍 Troubleshooting 403 Forbidden Error:")
             print("1. Verify your AIRTABLE_API_KEY has the correct permissions")
             print("2. Check that the AIRTABLE_BASE_ID is correct")
             print("3. Ensure the AIRTABLE_TABLE_ID exists in the base")
             print("4. Confirm your API key has read/write access to the table")
-            print("5. Check if the table schema matches expected field names")
         elif "404" in str(e) or "Not Found" in str(e):
             print("\n🔍 Troubleshooting 404 Not Found Error:")
             print("1. Verify the AIRTABLE_BASE_ID is correct")
